@@ -61,5 +61,5 @@ ec2.instances
 inst = ec2.create("config.cfg")
 
 # destroy the instance
-ec2.destroy(inst["instance_id"])
+ec2.destroy(inst["InstanceId"])
 ```
