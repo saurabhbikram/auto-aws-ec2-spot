@@ -4,200 +4,168 @@ import configparser
 import socket
 import sys
 import base64
+import pandas as pd
 
+class AutoEC2:
+    def __init__(self, profile=os.getenv('AWSACC')):
+        super().__init__()
+        self.session = boto3.session.Session(profile_name=profile)
+        self.client = self.session.client('ec2')
+        self.instances = self._get_instances()
 
-def read_user_data_from_local_config():
-    user_data = config.get('EC2', 'user_data')
-    if config.get('EC2', 'user_data') is None or user_data == '':
-        try:
-            user_data = (open(config.get('EC2', 'user_data_file'), 'r')).read()
-        except:
-            user_data = ''
-    return user_data
+    def read_user_data_from_local_config(self, config):
+        user_data = config.get('EC2', 'user_data')
+        if config.get('EC2', 'user_data') is None or user_data == '':
+            try:
+                user_data = (open(config.get('EC2', 'user_data_file'), 'r')).read()
+            except:
+                user_data = ''
+        return user_data
 
-
-def create_client(profile=None):
-    session = boto3.session.Session(profile_name=profile)
-    client = session.client('ec2')
-    return client
-
-
-def get_existing_instance_by_tag(client):
-    response = client.describe_instances(
-        Filters=[
-            {
-                'Name': 'tag:Name',
-                'Values': [config.get('EC2', 'tag')]
-            }
-        ])
-
-    if len(response['Reservations']) > 0:
-        return response['Reservations'][0]['Instances'][0]
-    else:
-        return None
-
-
-def list_all_existing_instances(client):
-    response = client.describe_instances(
-        # Filters=[
-        #     {
-        #         'Name': 'image-id',
-        #         'Values': [config.get('EC2', 'ami')]
-        #     }
-        #]
-    )
-    reservations = response['Reservations']
-    if len(reservations) > 0:
-        r_instances = [
-            inst for resv in reservations for inst in resv['Instances']]
-        for inst in r_instances:
-            print("Instance Id: %s | %s | %s" %
-                  (inst['InstanceId'], inst['InstanceType'], inst['State']['Name']))
-
-
-def get_spot_price(client):
-    price_history = client.describe_spot_price_history(MaxResults=10,
-                                                       InstanceTypes=[
-                                                           config.get('EC2', 'type')],
-                                                       ProductDescriptions=[config.get('EC2', 'product_description')])
-    return float(price_history['SpotPriceHistory'][0]['SpotPrice'])
-
-def associate_address(client, instance_id, public_ip=""):
-    if public_ip == "": return None
-    while True:
-        try:
-            res = client.associate_address(InstanceId=instance_id,PublicIp=public_ip)
-            assert res['ResponseMetadata']['HTTPStatusCode'] == 200
-            break
-        except boto3.exceptions.botocore.client.ClientError as e:
-            sleep(5)
-    return res
-
-def provision_instance(client, user_data):
-    user_data_encode = (base64.b64encode(user_data.encode())).decode("utf-8")
-    req = client.request_spot_instances(InstanceCount=1,
-                                        Type='one-time',
-                                        InstanceInterruptionBehavior='terminate',
-                                        LaunchSpecification={
-                                            'SecurityGroups': [
-                                                config.get(
-                                                    'EC2', 'security_group')
-                                            ],
-                                            'ImageId': config.get('EC2', 'ami'),
-                                            'InstanceType': config.get('EC2', 'type'),
-                                            'KeyName': config.get('EC2', 'key_pair'),
-
-                                            'UserData': user_data_encode,
-                                            'IamInstanceProfile': {'Arn':config.get('EC2', 'iam_role')}
-                                        },
-                                        SpotPrice=config.get('EC2', 'max_bid')
-                                        )
-    print('Spot request created, status: ' +
-          req['SpotInstanceRequests'][0]['State'])
-
-    print('Waiting for spot provisioning')
-    while True:
-        current_req = client.describe_spot_instance_requests(
-            SpotInstanceRequestIds=[req['SpotInstanceRequests'][0]['SpotInstanceRequestId']])
-        if current_req['SpotInstanceRequests'][0]['State'] == 'active':
-            print('Instance allocated ,Id: ',
-                  current_req['SpotInstanceRequests'][0]['InstanceId'])
-            instance = client.describe_instances(InstanceIds=[current_req['SpotInstanceRequests'][0]['InstanceId']])[
-                'Reservations'][0]['Instances'][0]
-            client.create_tags(Resources=[current_req['SpotInstanceRequests'][0]['InstanceId']],
-                               Tags=[{
-                                   'Key': 'Name',
-                                   'Value': config.get('EC2', 'tag')
-                               }]
-                               )
-            return instance
-        print('Waiting...',
-              sleep(10))
-
-
-def destroy_instance(client, inst):
-    try:
-        print('Terminating', inst['InstanceId'])
-        client.terminate_instances(
-            InstanceIds=[inst['InstanceId']])
-        print('Termination complete (', inst['InstanceId'], ')')
-        client.delete_tags(
-            Resources=[
-                inst['InstanceId']
-            ],
-            Tags=[
-                {
-                    'Key': 'Name',
-                    'Value': config.get('EC2', 'tag')
-                },
-            ]
+    def _get_instances(self):
+        response = self.client.describe_instances(
         )
-    except:
-        print('Failed to terminate:', sys.exc_info()[0])
+        reservations = response['Reservations']
+        df = pd.DataFrame()
 
+        if len(reservations) > 0:
+            r_instances = [inst for resv in reservations for inst in resv['Instances']]
+            inst_details = [ {'InstanceId':inst['InstanceId'], 
+                               'PublicIpAddress':inst['PublicIpAddress'] if 'PublicIpAddress' in inst.keys() else None,
+                              'InstanceType': inst['InstanceType'],
+                              'state': inst['State']['Name'],
+                              'name' : [k['Value'] for k in inst['Tags'] if k['Key']=='Name'][0] if 'Tags' in inst.keys() else None,
+                              } for inst in r_instances]
+            df = pd.DataFrame(inst_details)
+        
+        self.instances = df
 
-def wait_for_up(client, inst):
-    print('Waiting for instance to come up')
-    while True:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if inst['PublicIpAddress'] is None:
-            inst = get_existing_instance_by_tag(client)
-        try:
-            if inst['PublicIpAddress'] is None:
-                print('IP not assigned yet ...')
-            else:
-                s.connect((inst['PublicIpAddress'], 22))
-                s.shutdown(2)
-                print('Server is up!')
-                print('Server Public IP - %s' % inst['PublicIpAddress'])
+        return df
+
+    def get_spot_price(self, config):
+        price_history = self.client.describe_spot_price_history(MaxResults=10,
+                                                        InstanceTypes=[
+                                                            config.get('EC2', 'type')],
+                                                        ProductDescriptions=[config.get('EC2', 'product_description')])
+        return float(price_history['SpotPriceHistory'][0]['SpotPrice'])
+
+    def associate_address(self, instance_id, public_ip=""):
+        if public_ip == "": return None
+        while True:
+            try:
+                res = self.client.associate_address(InstanceId=instance_id,PublicIp=public_ip)
+                assert res['ResponseMetadata']['HTTPStatusCode'] == 200
                 break
+            except boto3.exceptions.botocore.client.ClientError as e:
+                sleep(5)
+        return res
+
+    def provision_instance(self, config):
+        user_data = self.read_user_data_from_local_config(config)
+        user_data_encode = (base64.b64encode(user_data.encode())).decode("utf-8")
+        req = self.client.request_spot_instances(InstanceCount=1,
+                                            Type='one-time',
+                                            InstanceInterruptionBehavior='terminate',
+                                            LaunchSpecification={
+                                                'SecurityGroups': [
+                                                    config.get(
+                                                        'EC2', 'security_group')
+                                                ],
+                                                'ImageId': config.get('EC2', 'ami'),
+                                                'InstanceType': config.get('EC2', 'type'),
+                                                'KeyName': config.get('EC2', 'key_pair'),
+
+                                                'UserData': user_data_encode,
+                                                'IamInstanceProfile': {'Arn':config.get('EC2', 'iam_role')}
+                                            },
+                                            SpotPrice=config.get('EC2', 'max_bid')
+                                            )
+        print('Spot request created, status: ' + req['SpotInstanceRequests'][0]['State'])
+        print('Waiting for spot provisioning')
+        while True:
+            current_req = self.client.describe_spot_instance_requests(
+                SpotInstanceRequestIds=[req['SpotInstanceRequests'][0]['SpotInstanceRequestId']])
+            if current_req['SpotInstanceRequests'][0]['State'] == 'active':
+                print('Instance allocated ,Id: ',
+                    current_req['SpotInstanceRequests'][0]['InstanceId'])
+                instance = self.client.describe_instances(InstanceIds=[current_req['SpotInstanceRequests'][0]['InstanceId']])[
+                    'Reservations'][0]['Instances'][0]
+                self.client.create_tags(Resources=[current_req['SpotInstanceRequests'][0]['InstanceId']],
+                                Tags=[{
+                                    'Key': 'Name',
+                                    'Value': config.get('EC2', 'tag')
+                                }]
+                                )
+                return instance
+            print('Waiting...',
+                sleep(10))
+
+
+    def destroy_instance(self, instance_id):
+        try:
+            print('Terminating', instance_id)
+            self.client.terminate_instances(
+                InstanceIds=[instance_id])
+            print('Termination complete (', instance_id, ')')
+
+            self.client.delete_tags(
+                Resources=[
+                    instance_id
+                ],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': self.instances.loc[self.instances.InstanceId==instance_id,"name"].tolist()[0]
+                    },
+                ]
+            )
         except:
-            print('Waiting...', sleep(10))
+            print('Failed to terminate:', sys.exc_info()[0])
 
-def do(action, config, profile='default'):
-    client = create_client(profile)
-    if client is None:
-        print('Unable to create EC2 client')
-        sys.exit(0)
-    inst = get_existing_instance_by_tag(client)
-    user_data = read_user_data_from_local_config()
 
-    if action == 'start':
-        if inst is None or inst['State'] == 'terminated':
-            spot_price = get_spot_price(client)
-            print('Spot price is ', str(spot_price))
-            if spot_price > float(config.get('EC2', 'max_bid')):
-                print('Spot price is too high!')
-                sys.exit(0)
-            else:
-                print('below maximum bid, continuing')
-                instance = provision_instance(client, user_data)
+    def wait_for_up(self, instance_id):
+        print('Waiting for instance to come up')
+        while True:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._get_instances()
+            public_ip = self.instances.loc[self.instances.InstanceId==instance_id,"PublicIpAddress"]
+            try:
+                if not len(public_ip):
+                    print('IP not assigned yet ...')
+                else:
+                    s.connect((public_ip.tolist()[0], 22))
+                    s.shutdown(2)
+                    print('Server is up!')
+                    print('Server Public IP - %s' % public_ip.tolist()[0])
+                    break
+            except:
+                print('Waiting...', sleep(10))
+    
+    def create(self, config_file):
 
-                # associate public ip address if required
-                associate_address(client, instance['InstanceId'], config.get('EC2','public_ip_address'))
+        config = configparser.ConfigParser()
+        config.read(config_file)
 
-                inst = get_existing_instance_by_tag(client)
-                
+        spot_price = self.get_spot_price(config)
+        if spot_price > float(config.get('EC2', 'max_bid')):
+            print("Spot price more than bid, not creating an instnace.")
+            inst = None
+        else:
+            # make spot instance
+            inst = self.provision_instance(config)
+            # add public ip
+            self.associate_address(inst['InstanceId'], config.get('EC2','public_ip_address'))
+            # wait for up
+            self.wait_for_up(inst['InstanceId'])
 
-        wait_for_up(client, inst)
-        return instance
-    elif action == 'stop' and inst is not None:
-        destroy_instance(client, inst)
-    elif action == 'list':
-        print('EC2 Instnaces:')
-        list_all_existing_instances(client)
-    else:
-        print('No action taken')
+        return inst
 
+    def destroy(self, instance_id):
+        self.destroy_instance(instance_id)
+        self._get_instances()
+        return None
+        
 if __name__ == "__main__":
 
-    action = 'stop' if len(sys.argv) == 1 else sys.argv[1]
-    config_file = 'scraper.cfg'
-    if len(sys.argv) == 3:
-        config_file = sys.argv[2]
-
-    config = configparser.ConfigParser()
-    config.read(config_file)
-
-    do(action, config, profile=os.getenv('AWSACC'))
-
+    ec2 = AutoEC2()
+    
