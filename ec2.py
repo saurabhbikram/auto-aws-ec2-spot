@@ -1,4 +1,4 @@
-import boto3
+import boto3, os
 from time import sleep
 import configparser
 import socket
@@ -16,8 +16,9 @@ def read_user_data_from_local_config():
     return user_data
 
 
-def create_client():
-    client = boto3.client('ec2')
+def create_client(profile=None):
+    session = boto3.session.Session(profile_name=profile)
+    client = session.client('ec2')
     return client
 
 
@@ -61,6 +62,16 @@ def get_spot_price(client):
                                                        ProductDescriptions=[config.get('EC2', 'product_description')])
     return float(price_history['SpotPriceHistory'][0]['SpotPrice'])
 
+def associate_address(client, instance_id, public_ip=""):
+    if public_ip == "": return None
+    while True:
+        try:
+            res = client.associate_address(InstanceId=instance_id,PublicIp=public_ip)
+            assert res['ResponseMetadata']['HTTPStatusCode'] == 200
+            break
+        except boto3.exceptions.botocore.client.ClientError as e:
+            sleep(5)
+    return res
 
 def provision_instance(client, user_data):
     user_data_encode = (base64.b64encode(user_data.encode())).decode("utf-8")
@@ -76,7 +87,8 @@ def provision_instance(client, user_data):
                                             'InstanceType': config.get('EC2', 'type'),
                                             'KeyName': config.get('EC2', 'key_pair'),
 
-                                            'UserData': user_data_encode
+                                            'UserData': user_data_encode,
+                                            'IamInstanceProfile': {'Arn':config.get('EC2', 'iam_role')}
                                         },
                                         SpotPrice=config.get('EC2', 'max_bid')
                                         )
@@ -138,21 +150,12 @@ def wait_for_up(client, inst):
                 s.shutdown(2)
                 print('Server is up!')
                 print('Server Public IP - %s' % inst['PublicIpAddress'])
-
-                print('ssh -i', '"' + config.get('EC2', 'key_pair') + '.pem' + '"',
-                      config.get('EC2', 'username') + inst['PublicDnsName'])
                 break
         except:
             print('Waiting...', sleep(10))
 
-# def run_code(client, inst):
-#     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#     s.connect((inst['PublicIpAddress'], 22))
-#     s.
-
-
-def main(action):
-    client = create_client()
+def do(action, config, profile='default'):
+    client = create_client(profile)
     if client is None:
         print('Unable to create EC2 client')
         sys.exit(0)
@@ -168,9 +171,16 @@ def main(action):
                 sys.exit(0)
             else:
                 print('below maximum bid, continuing')
-                provision_instance(client, user_data)
+                instance = provision_instance(client, user_data)
+
+                # associate public ip address if required
+                associate_address(client, instance['InstanceId'], config.get('EC2','public_ip_address'))
+
                 inst = get_existing_instance_by_tag(client)
+                
+
         wait_for_up(client, inst)
+        return instance
     elif action == 'stop' and inst is not None:
         destroy_instance(client, inst)
     elif action == 'list':
@@ -179,14 +189,15 @@ def main(action):
     else:
         print('No action taken')
 
-
 if __name__ == "__main__":
 
     action = 'stop' if len(sys.argv) == 1 else sys.argv[1]
-    config_file = 'ec2-spot-instance-config.cfg'
+    config_file = 'scraper.cfg'
     if len(sys.argv) == 3:
         config_file = sys.argv[2]
 
     config = configparser.ConfigParser()
     config.read(config_file)
-    main(action)
+
+    do(action, config, profile=os.getenv('AWSACC'))
+
