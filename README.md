@@ -1,6 +1,6 @@
-# auto-aws-ec2-spot
+# AutoAWS
 
-A Python script that requests a spot EC2 instance. Using tag name to control specific instance.
+A Python script that requests a spot EC2 instance. Use InstanceId to control the instance.
 
 ## Prerequisites
 
@@ -27,6 +27,8 @@ $ pip install boto3
     Default region name [None]:'Region'
     Default output format [None]: ENTER</pre>
 
+* To use multiple profiles set the system environment `AWSACC` with the name of the profile in `.aws/config`
+
 ## Configuration File
 
 List of a configure fields
@@ -41,17 +43,23 @@ List of a configure fields
 * `product_description`: 'Linux/UNIX' or 'Windows'
 * `user_data` User data be passed by the script to instance
 * `user_data_file` Script would read the file content, and pass data to instance as user-data
+* `public_ip` Public IP you want to attach
+* `iam_role` ARN of IAM role for instance
 
 \*Refer to `example-config.cfg` file.
 
 ## Request EC2 Spot Instance
 
-<pre>python main.py start CONFIG_FILE_NAME.cfg</pre>
+```
+from ec2 import AutoEC2
+ec2 = AutoEC2()
 
-## Terminate EC2 Spot Instance
+# show instances
+ec2.instances 
 
-<pre>python main.py stop CONFIG_FILE_NAME.cfg</pre>
+# create a new instance based on config file
+inst = ec2.create("config.cfg")
 
-## List EC2 Instances
-
-<pre>python main.py list CONFIG_FILE_NAME.cfg</pre>
+# destroy the instance
+ec2.destroy(inst["instance_id"])
+```
