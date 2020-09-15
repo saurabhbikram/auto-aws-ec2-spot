@@ -1,7 +1,6 @@
 import boto3, os
 from time import sleep
 import configparser
-import socket
 import sys
 import base64
 import pandas as pd
