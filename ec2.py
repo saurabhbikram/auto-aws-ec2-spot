@@ -107,22 +107,17 @@ class AutoEC2:
 
     def destroy_instance(self, instance_id):
         try:
+            tags_terminate = self.instances.loc[self.instances.InstanceId==instance_id,"name"].tolist()
+
             print('Terminating', instance_id)
-            self.client.terminate_instances(
-                InstanceIds=[instance_id])
+            self.client.terminate_instances(InstanceIds=[instance_id])
             print('Termination complete (', instance_id, ')')
 
-            self.client.delete_tags(
-                Resources=[
-                    instance_id
-                ],
-                Tags=[
-                    {
-                        'Key': 'Name',
-                        'Value': self.instances.loc[self.instances.InstanceId==instance_id,"name"].tolist()[0]
-                    },
-                ]
-            )
+            if len(tags_terminate) and ~pd.isnull(tags_terminate[0]):
+                self.client.delete_tags(
+                    Resources=[instance_id],
+                    Tags=[{'Key': 'Name','Value': tags_terminate},]
+                )
         except:
             print('Failed to terminate:', sys.exc_info()[0])
 
