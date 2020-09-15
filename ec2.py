@@ -86,6 +86,7 @@ class AutoEC2:
         print('Spot request created, status: ' + req['SpotInstanceRequests'][0]['State'])
         print('Waiting for spot provisioning')
         while True:
+            sleep(1)
             current_req = self.client.describe_spot_instance_requests(
                 SpotInstanceRequestIds=[req['SpotInstanceRequests'][0]['SpotInstanceRequestId']])
             if current_req['SpotInstanceRequests'][0]['State'] == 'active':
