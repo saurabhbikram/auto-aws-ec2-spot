@@ -5,6 +5,7 @@ import socket
 import sys
 import base64
 import pandas as pd
+from datetime import datetime, timedelta
 
 class AutoEC2:
     def __init__(self, profile=os.getenv('AWSACC')):
@@ -13,13 +14,12 @@ class AutoEC2:
         self.client = self.session.client('ec2')
         self.instances = self._get_instances()
 
-    def read_user_data_from_local_config(self, config):
-        user_data = config.get('EC2', 'user_data')
-        if config.get('EC2', 'user_data') is None or user_data == '':
-            try:
-                user_data = (open(config.get('EC2', 'user_data_file'), 'r')).read()
-            except:
-                user_data = ''
+    @staticmethod
+    def read_user_data():
+        user_data = ""
+        if os.path.exists("userdata.txt"):
+            with open("userdata.txt","r") as f:
+                user_data = f.read()
         return user_data
 
     def _get_instances(self):
@@ -37,6 +37,7 @@ class AutoEC2:
                               'name' : [k['Value'] for k in inst['Tags'] if k['Key']=='Name'][0] if 'Tags' in inst.keys() else None,
                               } for inst in r_instances]
             df = pd.DataFrame(inst_details)
+            df = df[df.state != "terminated"].reset_index(drop=True)
         
         self.instances = df
 
@@ -61,11 +62,13 @@ class AutoEC2:
         return res
 
     def provision_instance(self, config):
-        user_data = self.read_user_data_from_local_config(config)
+        user_data = self.read_user_data()
+        print(user_data)
         user_data_encode = (base64.b64encode(user_data.encode())).decode("utf-8")
         req = self.client.request_spot_instances(InstanceCount=1,
                                             Type='one-time',
                                             InstanceInterruptionBehavior='terminate',
+                                            ValidUntil=datetime.utcnow()+timedelta(hours=int(config.get('EC2', 'valid_hours'))),
                                             LaunchSpecification={
                                                 'SecurityGroups': [
                                                     config.get(
@@ -147,6 +150,7 @@ class AutoEC2:
         config.read(config_file)
 
         spot_price = self.get_spot_price(config)
+        print(f"Spot price ${str(spot_price)}")
         if spot_price > float(config.get('EC2', 'max_bid')):
             print("Spot price more than bid, not creating an instnace.")
             inst = None
