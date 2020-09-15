@@ -121,25 +121,6 @@ class AutoEC2:
         except:
             print('Failed to terminate:', sys.exc_info()[0])
 
-
-    def wait_for_up(self, instance_id):
-        print('Waiting for instance to come up')
-        while True:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._get_instances()
-            public_ip = self.instances.loc[self.instances.InstanceId==instance_id,"PublicIpAddress"]
-            try:
-                if not len(public_ip):
-                    print('IP not assigned yet ...')
-                else:
-                    s.connect((public_ip.tolist()[0], 22))
-                    s.shutdown(2)
-                    print('Server is up!')
-                    print('Server Public IP - %s' % public_ip.tolist()[0])
-                    break
-            except:
-                print('Waiting...', sleep(10))
-    
     def create(self, config_file):
 
         config = configparser.ConfigParser()
@@ -155,9 +136,7 @@ class AutoEC2:
             inst = self.provision_instance(config)
             # add public ip
             self.associate_address(inst['InstanceId'], config.get('EC2','public_ip_address'))
-            # wait for up
-            self.wait_for_up(inst['InstanceId'])
-
+            
         return inst
 
     def destroy(self, instance_id):
