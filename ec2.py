@@ -76,6 +76,7 @@ class AutoEC2:
                                                 'ImageId': config.get('EC2', 'ami'),
                                                 'InstanceType': config.get('EC2', 'type'),
                                                 'KeyName': config.get('EC2', 'key_pair'),
+                                                'Placement':{'AvailabilityZone':'us-east-1a'},
 
                                                 'UserData': user_data_encode,
                                                 'IamInstanceProfile': {'Arn':config.get('EC2', 'iam_role')}
