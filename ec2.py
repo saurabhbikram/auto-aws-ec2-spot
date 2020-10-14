@@ -80,7 +80,7 @@ class AutoEC2:
             InstanceCount=1,
             Type="one-time",
             InstanceInterruptionBehavior="terminate",
-            ## TODO.. below doesnt work, instance doesn't die but spot request dies
+            ## TODO.. below doesn't work, instance doesn't die but spot request dies
             # ValidUntil=datetime.utcnow()+timedelta(hours=int(config.get('EC2', 'valid_hours'))),
             LaunchSpecification={
                 "SecurityGroups": [config.get("EC2", "security_group")],
@@ -90,7 +90,7 @@ class AutoEC2:
                 "Placement": {
                     "AvailabilityZone": config.get("EC2", "availability_zone")
                 },
-                "SubnetId": config.get("EC2", "SubnetId"),
+                "SubnetId": config.get("EC2", "subnet_id"),
                 "UserData": user_data_encode,
                 "IamInstanceProfile": {"Arn": config.get("EC2", "iam_role")},
             },

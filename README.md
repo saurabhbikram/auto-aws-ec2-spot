@@ -33,20 +33,22 @@ $ pip install boto3
 
 List of a configure fields
 
-* `tag`: A tag that will be used by the script to identify the instance
+* `tag`: Name of the instance
+* `team`, `created_by`, `application`: extra tags
 * `ami`: AMI_ID - Get the appropriate AMI ID for your region from http://aws.amazon.com/amazon-linux-ami/
 * `key_pair`: Named keypair on EC2 for instance creation
 * `security_group`: Named security_group on EC2 for instance creation
 * `max_bid`: Max bid price for spot instance. Current bid prices can be found at https://aws.amazon.com/ec2/spot/pricing/
 * `type`: Type of EC2 instance. List can be found at https://aws.amazon.com/ec2/instance-types/
-* `region`: Region code (eg. 'us-west-1'). List of regions can be found at https://docs.aws.amazon.com/general/latest/gr/rande.html#ec2_region
+* `availability_zone`: AvailablityZone code (eg. 'us-west-1a'). List of regions can be found at https://docs.aws.amazon.com/general/latest/gr/rande.html#ec2_region
+* `subnet_id`" subnet id for the AZ
 * `product_description`: 'Linux/UNIX' or 'Windows'
-* `user_data` User data be passed by the script to instance
-* `user_data_file` Script would read the file content, and pass data to instance as user-data
-* `public_ip` Public IP you want to attach
-* `iam_role` ARN of IAM role for instance
+* `public_ip` Public IP you want to attach (can leave blank)
+* `iam_role` ARN of IAM role for instance (can leave blank)
 
 \*Refer to `example-config.cfg` file.
+
+You can add user data by creating a `userdata.txt` file.
 
 ## Request EC2 Spot Instance
 
