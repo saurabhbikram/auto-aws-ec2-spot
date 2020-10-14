@@ -67,7 +67,8 @@ class AutoEC2:
         req = self.client.request_spot_instances(InstanceCount=1,
                                             Type='one-time',
                                             InstanceInterruptionBehavior='terminate',
-                                            ValidUntil=datetime.utcnow()+timedelta(hours=int(config.get('EC2', 'valid_hours'))),
+                                            ## TODO.. below doesnt work, instance doesn't die but spot request dies
+                                            #ValidUntil=datetime.utcnow()+timedelta(hours=int(config.get('EC2', 'valid_hours'))),
                                             LaunchSpecification={
                                                 'SecurityGroups': [
                                                     config.get(
@@ -76,8 +77,8 @@ class AutoEC2:
                                                 'ImageId': config.get('EC2', 'ami'),
                                                 'InstanceType': config.get('EC2', 'type'),
                                                 'KeyName': config.get('EC2', 'key_pair'),
-                                                'Placement':{'AvailabilityZone':'us-east-1a'},
-
+                                                'Placement':{'AvailabilityZone':config.get('EC2', 'availability_zone')},
+                                                'SubnetId': config.get('EC2', 'SubnetId'),
                                                 'UserData': user_data_encode,
                                                 'IamInstanceProfile': {'Arn':config.get('EC2', 'iam_role')}
                                             },
@@ -98,7 +99,20 @@ class AutoEC2:
                                 Tags=[{
                                     'Key': 'Name',
                                     'Value': config.get('EC2', 'tag')
-                                }]
+                                    },
+                                    {
+                                    'Key': 'CreatedBy',
+                                    'Value': config.get('EC2', 'created_by')
+                                    },
+                                    {
+                                    'Key': 'Team',
+                                    'Value': config.get('EC2', 'team')
+                                    },
+                                    {
+                                    'Key': 'Application',
+                                    'Value': config.get('EC2', 'application')
+                                    }
+                                ]
                                 )
                 return instance
             print('Waiting...',
